@@ -45,11 +45,34 @@ export const api = {
     try {
       const limit = params.limit || 20;
       const offset = params.lastDoc || 0;
-
-      const { data, error } = await supabase
+      let query = supabase
         .from('businesses')
-        .select('*')
-        .limit(50);
+        .select('*', { count: 'exact' })
+        .order('name')
+        .range(offset, offset + limit - 1);
+
+      if (params.category && params.category !== 'all') {
+        query = query.eq('category', params.category);
+      }
+
+      if (params.governorate && params.governorate !== 'all') {
+        query = query.eq('governorate', params.governorate);
+      }
+
+      if (params.city?.trim()) {
+        const q = params.city.trim().replace(/,/g, ' ');
+        query = query.or(`city.ilike.%${q}%,name.ilike.%${q}%`);
+      }
+
+      if (params.featuredOnly) {
+        query = query.eq('isFeatured', true);
+      }
+
+      if (params.ratingMin && params.ratingMin > 0) {
+        query = query.gte('rating', params.ratingMin);
+      }
+
+      const { data, error, count } = await query;
 
       if (error) {
         throw error;
@@ -59,38 +82,13 @@ export const api = {
         ...business,
         isVerified: business.isVerified ?? business.verified ?? false,
       })) as Business[];
-
-      if (params.category && params.category !== 'all') {
-        normalized = normalized.filter((business) => business.category === params.category);
-      }
-
-      if (params.governorate && params.governorate !== 'all') {
-        normalized = normalized.filter((business) => business.governorate === params.governorate);
-      }
-
-      if (params.city?.trim()) {
-        const q = params.city.trim().toLowerCase();
-        normalized = normalized.filter((business) =>
-          (business.city || '').toLowerCase().includes(q) ||
-          (business.name || '').toLowerCase().includes(q)
-        );
-      }
-
-      if (params.featuredOnly) {
-        normalized = normalized.filter((business) => business.isFeatured === true);
-      }
-
-      if (params.ratingMin && params.ratingMin > 0) {
-        normalized = normalized.filter((business) => (business.rating || 0) >= params.ratingMin);
-      }
-
-      const paged = normalized.slice(offset, offset + limit);
+      const totalCount = count ?? normalized.length;
 
       return {
-        data: paged,
-        lastDoc: offset + paged.length,
-        hasMore: offset + paged.length < normalized.length,
-        totalCount: normalized.length,
+        data: normalized,
+        lastDoc: offset + normalized.length,
+        hasMore: offset + normalized.length < totalCount,
+        totalCount,
       };
     } catch (error) {
       logger.error('Supabase businesses request failed', {

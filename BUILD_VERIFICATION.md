@@ -1,20 +1,15 @@
-# Build verification (2026-03-26)
+# Build verification guide
 
-## Commands attempted
+Run this before launch from repository root:
 
 1. `npm install`
-2. `npm run build`
+2. `npm run lint`
+3. `npm run build`
+4. `./scripts/preflight.sh`
 
-## Results
+Expected outcome:
+- lint/typecheck passes
+- production build succeeds into `dist/`
+- preflight confirms Supabase env vars are present
 
-- `npm install` failed with `E403` when requesting packages from the npm registry in this environment.
-- Because dependencies could not be installed, `npm run build` could not be executed.
-
-## Static checks completed
-
-- Searched source files for runtime worker usage (`worker`, `new Worker`, `SharedWorker`, `serviceWorker`) and found no matches.
-- Ran a repository-wide relative import resolution script; no unresolved **relative** imports were detected.
-
-## Notes
-
-This indicates the current blocker is environment-level npm registry access, not a code-level import path issue in local source files.
+If any step fails, treat it as a launch blocker and resolve before publish.
