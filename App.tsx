@@ -112,13 +112,8 @@ const MainContent: React.FC = () => {
         // User is signed in, fetch profile from Firestore
         // We'll use a default role of 'user' if not found, or prompt for it
         const user = await api.login(firebaseUser.email || '', 'user');
-        if (user) {
-          setCurrentUser(user);
-          setIsLoggedIn(true);
-        } else {
-          setCurrentUser(null);
-          setIsLoggedIn(false);
-        }
+        setCurrentUser(user);
+        setIsLoggedIn(true);
       } else {
         setCurrentUser(null);
         setIsLoggedIn(false);
@@ -155,10 +150,8 @@ const MainContent: React.FC = () => {
     // We just need to ensure the role is correctly set if it's a new user.
     if (auth.currentUser) {
         const user = await api.login(email, role);
-        if (user) {
-          setCurrentUser(user);
-          setIsLoggedIn(true);
-        }
+        setCurrentUser(user);
+        setIsLoggedIn(true);
     }
     setShowAuthModal(false);
   };
@@ -254,7 +247,7 @@ const MainContent: React.FC = () => {
                 onBack={() => navigateTo('home')} 
             />
         )}
-        {page === 'dashboard' && currentUser && <Dashboard user={currentUser} onLogout={handleLogout} />}
+        {page === 'dashboard' && <Dashboard user={currentUser!} onLogout={handleLogout} />}
       </main>
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} onLogin={handleLogin} />}
       <SubcategoryModal 

@@ -1,14 +1,8 @@
 import React, { useState } from 'react';
-import { X } from './icons';
+import { X, User } from './icons';
 import { useTranslations } from '../hooks/useTranslations';
 import { auth } from '../firebase';
-import {
-    GoogleAuthProvider,
-    createUserWithEmailAndPassword,
-    signInWithEmailAndPassword,
-    signInWithPopup,
-    updateProfile
-} from 'firebase/auth';
+import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 
 interface AuthModalProps {
     onClose: () => void;
@@ -19,39 +13,9 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onLogin }) => {
     const [activeTab, setActiveTab] = useState<'signin' | 'signup'>('signin');
     const [role, setRole] = useState<'user' | 'owner'>('user');
     const [isLoading, setIsLoading] = useState(false);
-    const [fullName, setFullName] = useState('');
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [authError, setAuthError] = useState<string | null>(null);
     const { t } = useTranslations();
-
-    const clearAuthError = () => setAuthError(null);
-
-    const getFriendlyAuthError = (error: unknown, mode: 'signin' | 'signup') => {
-        const code = typeof error === 'object' && error !== null && 'code' in error
-            ? String((error as { code?: string }).code)
-            : '';
-
-        if (code.includes('auth/invalid-credential') || code.includes('auth/wrong-password') || code.includes('auth/user-not-found')) {
-            return 'Invalid email or password.';
-        }
-        if (code.includes('auth/email-already-in-use')) {
-            return 'This email is already registered.';
-        }
-        if (code.includes('auth/invalid-email')) {
-            return 'Please enter a valid email address.';
-        }
-        if (code.includes('auth/weak-password')) {
-            return 'Password is too weak. Please choose a stronger password.';
-        }
-
-        return mode === 'signup'
-            ? 'Failed to create account. Please try again.'
-            : 'Failed to sign in. Check your credentials and try again.';
-    };
-
+    
     const handleGoogleSignIn = async () => {
-        clearAuthError();
         setIsLoading(true);
         try {
             const provider = new GoogleAuthProvider();
@@ -61,42 +25,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onLogin }) => {
             }
         } catch (error) {
             console.error('Google Sign-In Error:', error);
-            setAuthError('Failed to sign in with Google. Please try again.');
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    const handleEmailAuth = async (event: React.FormEvent<HTMLFormElement>) => {
-        event.preventDefault();
-        clearAuthError();
-        setIsLoading(true);
-
-        try {
-            const normalizedEmail = email.trim().toLowerCase();
-            const normalizedPassword = password.trim();
-
-            if (activeTab === 'signup') {
-                if (normalizedPassword.length < 8) {
-                    throw new Error('Password must be at least 8 characters long.');
-                }
-
-                const credentials = await createUserWithEmailAndPassword(auth, normalizedEmail, normalizedPassword);
-                if (fullName.trim()) {
-                    await updateProfile(credentials.user, { displayName: fullName.trim() });
-                }
-                onLogin(credentials.user.email || normalizedEmail, role);
-            } else {
-                const credentials = await signInWithEmailAndPassword(auth, normalizedEmail, normalizedPassword);
-                onLogin(credentials.user.email || normalizedEmail, role);
-            }
-        } catch (error) {
-            console.error('Email auth error:', error);
-            if (error instanceof Error && error.message === 'Password must be at least 8 characters long.') {
-                setAuthError(error.message);
-            } else {
-                setAuthError(getFriendlyAuthError(error, activeTab));
-            }
+            alert('Failed to sign in with Google. Please try again.');
         } finally {
             setIsLoading(false);
         }
@@ -108,7 +37,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onLogin }) => {
                 <button onClick={onClose} className="absolute top-4 end-4 w-10 h-10 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center transition-colors">
                     <X className="w-5 h-5 text-white" />
                 </button>
-
+                
                 <h2 className="text-2xl font-bold text-white mb-2">
                     {activeTab === 'signin' ? t('auth.signIn') : t('auth.signUp')}
                 </h2>
@@ -124,7 +53,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onLogin }) => {
                                 onClick={() => setRole('user')}
                                 className={`flex-1 py-3 rounded-xl border transition-all flex flex-col items-center gap-1 ${role === 'user' ? 'bg-primary/20 border-primary text-primary' : 'bg-white/5 border-white/10 text-white/60'}`}
                             >
-                                <span className="font-semibold text-sm">{t('auth.roleUser') || 'Visitor'}</span>
+                                <span className="font-semibold text-sm">{t('auth.roleUser') || "Visitor"}</span>
                                 <span className="text-[10px] opacity-60">Explore & Connect</span>
                             </button>
                             <button
@@ -132,13 +61,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onLogin }) => {
                                 onClick={() => setRole('owner')}
                                 className={`flex-1 py-3 rounded-xl border transition-all flex flex-col items-center gap-1 ${role === 'owner' ? 'bg-secondary/20 border-secondary text-secondary' : 'bg-white/5 border-white/10 text-white/60'}`}
                             >
-                                <span className="font-semibold text-sm">{t('auth.roleOwner') || 'Business Owner'}</span>
+                                <span className="font-semibold text-sm">{t('auth.roleOwner') || "Business Owner"}</span>
                                 <span className="text-[10px] opacity-60">Grow Your Business</span>
                             </button>
                         </div>
                     )}
 
-                    <button
+                    <button 
                         onClick={handleGoogleSignIn}
                         disabled={isLoading}
                         className="w-full py-4 rounded-xl bg-white text-black font-bold flex items-center justify-center gap-3 hover:bg-white/90 transition-all disabled:opacity-50"
@@ -162,63 +91,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onLogin }) => {
                         </div>
                     </div>
 
-                    <form className="space-y-4" onSubmit={handleEmailAuth}>
-                        {activeTab === 'signup' && (
-                            <input
-                                type="text"
-                                value={fullName}
-                                onChange={(event) => setFullName(event.target.value)}
-                                placeholder={t('auth.fullName')}
-                                className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white outline-none"
-                                required
-                            />
-                        )}
-                        <input
-                            type="email"
-                            value={email}
-                            onChange={(event) => {
-                                setEmail(event.target.value);
-                                clearAuthError();
-                            }}
-                            placeholder={t('auth.email')}
-                            className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white outline-none"
-                            required
-                        />
-                        <input
-                            type="password"
-                            value={password}
-                            onChange={(event) => {
-                                setPassword(event.target.value);
-                                clearAuthError();
-                            }}
-                            placeholder={t('auth.password')}
-                            className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white outline-none"
-                            minLength={activeTab === 'signup' ? 8 : 1}
-                            required
-                        />
-                        {authError && (
-                            <div className="rounded-xl border border-red-400/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-                                {authError}
-                            </div>
-                        )}
-                        <button
-                            type="submit"
-                            disabled={isLoading}
-                            className="w-full py-3 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold disabled:opacity-50"
-                        >
+                    <div className="space-y-4 opacity-50 pointer-events-none">
+                        <input type="email" placeholder="Email address" className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white outline-none" />
+                        <input type="password" placeholder="Password" className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white outline-none" />
+                        <button className="w-full py-3 rounded-xl bg-white/10 text-white/40 font-semibold">
                             {activeTab === 'signin' ? t('auth.signIn') : t('auth.createAccount')}
                         </button>
-                    </form>
+                    </div>
 
                     <div className="text-center">
-                        <button
-                            onClick={() => {
-                                clearAuthError();
-                                setActiveTab(activeTab === 'signin' ? 'signup' : 'signin');
-                            }}
+                        <button 
+                            onClick={() => setActiveTab(activeTab === 'signin' ? 'signup' : 'signin')}
                             className="text-primary text-sm font-medium hover:underline"
                         >
-                            {activeTab === 'signin' ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
+                            {activeTab === 'signin' ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
                         </button>
                     </div>
                 </div>

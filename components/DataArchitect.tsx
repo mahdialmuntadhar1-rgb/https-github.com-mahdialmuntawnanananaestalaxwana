@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { GoogleGenAI } from '@google/genai';
 import { Sparkles, CheckCircle, X, ShieldCheck, Briefcase, MapPin, Navigation } from './icons';
 import { GlassCard } from './GlassCard';
 import { api } from '../services/api';
@@ -44,6 +45,8 @@ export const DataArchitect: React.FC = () => {
       const flagged: { name: string; city: string; reason: string }[] = [];
       const postcards: BusinessPostcard[] = [];
 
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+
       for (const place of places) {
         const name = place.title || place.name;
         const phone = place.phone || place.phoneNumber;
@@ -83,12 +86,15 @@ export const DataArchitect: React.FC = () => {
         
         let tagline = `${name} in ${city}`;
         try {
-            const aiResponse = await api.generateBusinessTagline({
-              businessName: name,
-              city,
-              reviews: topReviews
+            const aiResponse = await ai.models.generateContent({
+                model: 'gemini-2.5-flash',
+                contents: `You are a creative copywriter for a local business discovery app in Iraq.
+                Based on these Google Maps reviews for "${name}":
+                ${topReviews}
+                Write a single punchy tagline (max 15 words) that captures the vibe of this business.
+                Tone: warm, local, confident. No emojis. No generic phrases like "best in town."`
             });
-            tagline = aiResponse.tagline;
+            tagline = aiResponse.text.trim().replace(/^"|"$/g, '');
         } catch (err) {
             console.error("AI Generation failed", err);
         }
