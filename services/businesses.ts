@@ -15,11 +15,14 @@ export async function listBusinesses(params: {
 
   let query = supabase.from('businesses').select('*', { count: 'exact' });
 
-  if (params.q?.trim()) query = query.ilike('name', `%${params.q.trim()}%`);
+  if (params.q?.trim()) {
+    const escaped = params.q.trim().replace(/,/g, ' ');
+    query = query.or(`name.ilike.%${escaped}%,city.ilike.%${escaped}%`);
+  }
   if (params.governorate) query = query.eq('governorate', params.governorate);
   if (params.category) query = query.eq('category', params.category);
 
-  const { data, error, count } = await query.range(from, to);
+  const { data, error, count } = await query.order('name').range(from, to);
 
   if (error) throw new Error(error.message);
 

@@ -1,65 +1,80 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# Iraq Compass (Production: Frontend → Supabase)
 
-# Iraq Compass (Vite + React + Supabase)
+Iraq Compass is deployed as a **simple frontend-only app**:
 
-This app uses a frontend-only architecture:
+- **Frontend:** Vite + React
+- **Backend/Data:** Supabase (Auth + Postgres + Realtime)
+- **Deployment target:** Cloudflare Pages (static site)
+- **No worker/proxy runtime required**
+- **No AI agent runtime**
 
-Frontend (Vite + React)
-→ Supabase (Auth, Postgres, Realtime)
+## 1) Local Run
 
-No Worker runtime exists in this project.
+Prerequisites:
+- Node.js 20+
 
-## Run Locally
+```bash
+npm install
+cp .env.example .env.local
+npm run dev
+```
 
-**Prerequisites:** Node.js 20+
+Open `http://localhost:3000`.
 
-1. Install dependencies:
-   `npm install`
-2. Create `.env.local` with required variables:
-   - `VITE_SUPABASE_URL`
-   - `VITE_SUPABASE_ANON_KEY`
-3. Run the app:
-   `npm run dev`
+## 2) Required Environment Variables
 
-## Build
+Required for launch:
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
 
-`npm run build`
+Optional:
+- none currently required by runtime
 
-The production output is generated in `dist/`.
+Obsolete:
+- `VITE_CLOUDFLARE_ACCOUNT_ID` (not used by app runtime)
+- `VITE_CLOUDFLARE_PROJECT_NAME` (not used by app runtime)
 
-## Preflight / Launch Checks
+## 3) Build / Preflight
 
-Use the preflight script before release:
+```bash
+npm run lint
+npm run build
+./scripts/preflight.sh
+```
 
-`./scripts/preflight.sh`
+## 4) Supabase Setup
 
-It validates:
-- Type/lint checks (`npm run lint`)
-- Production build (`npm run build`)
-- Required Supabase environment variables
+Migrations are under `supabase/migrations`.
 
-## Architecture
-
-- Auth: Supabase Auth (Google OAuth)
-- Data: Supabase Postgres tables via `@supabase/supabase-js`
-- Realtime: Supabase channels for social feed updates
-- Deploy target: Cloudflare Pages (static site)
-
-## Database setup (production baseline)
-
-This repository includes Supabase schema + RLS baseline migrations:
-
-- `supabase/migrations/20260326_initial_schema.sql`
-
-Apply with Supabase CLI from project root:
+Apply:
 
 ```bash
 supabase db push
 ```
 
-The migration includes:
-- core tables (`users`, `businesses`, `posts`, `events`, `deals`, `stories`, `business_postcards`)
-- row level security enabled on all tables
-- policies for public reads, owner writes, and admin-only postcard ingestion
+Current launch-baseline includes:
+- Core tables (`users`, `businesses`, `posts`, `events`, `deals`, `stories`, `business_postcards`)
+- RLS enabled for all tables
+- Public read policies for discovery tables
+- Owner/admin write protections
+- Listing/search indexes (category, governorate, city, name)
+
+## 5) Cloudflare Pages Configuration
+
+Use these settings in Cloudflare Pages:
+- Framework preset: **Vite**
+- Build command: `npm run build`
+- Build output directory: `dist`
+
+Set runtime environment variables in Pages project settings:
+- `VITE_SUPABASE_URL`
+- `VITE_SUPABASE_ANON_KEY`
+
+## 6) Launch Scope Notes
+
+This release hardening focuses on:
+- production-safe frontend + Supabase integration
+- listings/search/details/filtering flows
+- removal of misleading or dead launch-time features
+
+Large-scale data cleanup is intentionally out-of-scope for this pass.

@@ -1,17 +1,19 @@
 import React, { useState, useEffect } from 'react';
 import { categories } from '../constants';
-import { listBusinesses } from '../services/businesses';
+import { getBusinessById, listBusinesses } from '../services/businesses';
 import type { Business } from '../types';
 import { Star, Grid3x3, List, MapPin, CheckCircle, ArrowLeft } from './icons';
 import { useTranslations } from '../hooks/useTranslations';
 import { GlassCard } from './GlassCard';
+import { BusinessDetailsModal } from './BusinessDetailsModal';
 
 interface BusinessCardProps {
   business: Business;
   viewMode: 'grid' | 'list';
+  onViewDetails: (businessId: string | number) => void;
 }
 
-const BusinessCard: React.FC<BusinessCardProps> = ({ business, viewMode }) => {
+const BusinessCard: React.FC<BusinessCardProps> = ({ business, viewMode, onViewDetails }) => {
   const { t, lang } = useTranslations();
   
   const displayName = lang === 'ar' && business.nameAr ? business.nameAr : 
@@ -35,7 +37,7 @@ const BusinessCard: React.FC<BusinessCardProps> = ({ business, viewMode }) => {
           </div>
         </div>
         <div className="flex flex-col justify-center gap-2">
-          <button className="px-4 py-2 rounded-xl bg-gradient-to-r from-primary to-secondary text-white font-medium text-sm">{t('directory.view')}</button>
+          <button onClick={() => onViewDetails(business.id)} className="px-4 py-2 rounded-xl bg-gradient-to-r from-primary to-secondary text-white font-medium text-sm">{t('directory.view')}</button>
           <button className="px-4 py-2 rounded-xl backdrop-blur-xl bg-white/10 border border-white/20 text-white font-medium text-sm">{t('directory.contact')}</button>
         </div>
       </GlassCard>
@@ -55,7 +57,7 @@ const BusinessCard: React.FC<BusinessCardProps> = ({ business, viewMode }) => {
           <div className="flex items-center gap-1"><Star className="w-4 h-4 text-accent fill-accent" /><span className="text-white font-medium">{business.rating}</span><span className="text-white/60 text-sm">({displayReviews})</span></div>
           <div className="flex items-center gap-1 text-white/60 text-sm"><MapPin className="w-4 h-4" />{business.distance ? `${business.distance} km` : (t('common.notAvailable') || 'N/A')}</div>
         </div>
-        <button className="w-full mt-4 py-3 rounded-xl bg-gradient-to-r from-primary to-secondary text-white font-semibold hover:shadow-glow-primary transition-all">{t('directory.viewProfile')}</button>
+        <button onClick={() => onViewDetails(business.id)} className="w-full mt-4 py-3 rounded-xl bg-gradient-to-r from-primary to-secondary text-white font-semibold hover:shadow-glow-primary transition-all">{t('directory.viewProfile')}</button>
       </div>
     </GlassCard>
   );
@@ -81,6 +83,8 @@ export const BusinessDirectory: React.FC<BusinessDirectoryProps> = ({ initialFil
   const [totalCount, setTotalCount] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedBusiness, setSelectedBusiness] = useState<Business | null>(null);
+  const [isDetailsLoading, setIsDetailsLoading] = useState(false);
   const { t } = useTranslations();
 
   useEffect(() => {
@@ -140,6 +144,20 @@ export const BusinessDirectory: React.FC<BusinessDirectoryProps> = ({ initialFil
   useEffect(() => {
     fetchBusinesses();
   }, [filters, pageSize]);
+
+  const handleViewBusiness = async (businessId: string | number) => {
+    setIsDetailsLoading(true);
+    try {
+      const business = await getBusinessById(businessId);
+      if (business) {
+        setSelectedBusiness(business);
+      }
+    } catch (err) {
+      console.error('Error loading business details:', err);
+    } finally {
+      setIsDetailsLoading(false);
+    }
+  };
 
   return (
     <section className="py-16">
@@ -242,7 +260,9 @@ export const BusinessDirectory: React.FC<BusinessDirectoryProps> = ({ initialFil
                 </div>
             ) : (
                 <div className={viewMode === 'grid' ? 'grid grid-cols-1 sm:grid-cols-2 gap-6' : 'space-y-4'}>
-                    {businessesData.map((business) => (<BusinessCard key={business.id} business={business} viewMode={viewMode} />))}
+                    {businessesData.map((business) => (
+                      <BusinessCard key={business.id} business={business} viewMode={viewMode} onViewDetails={handleViewBusiness} />
+                    ))}
                 </div>
             )}
 
@@ -260,6 +280,12 @@ export const BusinessDirectory: React.FC<BusinessDirectoryProps> = ({ initialFil
           </div>
         </div>
       </div>
+      {isDetailsLoading && (
+        <div className="fixed bottom-6 end-6 z-[55] rounded-xl bg-white/10 border border-white/20 px-4 py-2 text-sm text-white backdrop-blur-xl">
+          {t('directory.loading') || 'Loading...'}
+        </div>
+      )}
+      <BusinessDetailsModal business={selectedBusiness} onClose={() => setSelectedBusiness(null)} />
     </section>
   );
 };

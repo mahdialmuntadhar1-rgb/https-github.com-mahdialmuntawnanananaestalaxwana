@@ -4,7 +4,6 @@ import { Heart, Star, MapPin, Clock, Users, ShieldCheck } from './icons';
 import { useTranslations } from '../hooks/useTranslations';
 import { GlassCard } from './GlassCard';
 import { SocialPostBox } from './SocialPostBox';
-import { DataArchitect } from './DataArchitect';
 import { api } from '../services/api';
 
 interface DashboardProps {
@@ -14,7 +13,6 @@ interface DashboardProps {
 
 export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
     const { t } = useTranslations();
-    const [activeTab, setActiveTab] = React.useState<'profile' | 'architect'>('profile');
     const [statusMsg, setStatusMsg] = React.useState<{ type: 'success' | 'error', text: string } | null>(null);
     
     const handleCreatePost = async (postData: Partial<Post>) => {
@@ -97,29 +95,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                 </button>
             </div>
 
-            {user.role === 'admin' && (
-                <div className="flex justify-center mb-12">
-                    <div className="flex p-1 rounded-2xl bg-white/5 backdrop-blur-xl border border-white/10">
-                        <button 
-                            onClick={() => setActiveTab('profile')}
-                            className={`px-8 py-2.5 rounded-xl transition-all font-medium ${activeTab === 'profile' ? 'bg-primary text-white shadow-glow-primary' : 'text-white/60 hover:text-white'}`}
-                        >
-                            My Profile
-                        </button>
-                        <button 
-                            onClick={() => setActiveTab('architect')}
-                            className={`px-8 py-2.5 rounded-xl transition-all font-medium ${activeTab === 'architect' ? 'bg-primary text-white shadow-glow-primary' : 'text-white/60 hover:text-white'}`}
-                        >
-                            Data Architect
-                        </button>
-                    </div>
-                </div>
-            )}
-
-            {activeTab === 'architect' && user.role === 'admin' ? (
-                <DataArchitect />
-            ) : (
-                <>
+            <>
                     {user.role === 'owner' && user.businessId && (
                         <div className="max-w-2xl mx-auto mb-12">
                             <h2 className="text-2xl font-bold text-white mb-6">{t('dashboard.createPost') || "Create a Post"}</h2>
@@ -202,8 +178,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                             </GlassCard>
                         </div>
                     </div>
-                </>
-            )}
+            </>
         </div>
     );
 };
