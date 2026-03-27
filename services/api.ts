@@ -17,8 +17,9 @@ import {
     QueryDocumentSnapshot,
     DocumentData
 } from 'firebase/firestore';
-import { db, auth } from '../firebase';
+import { db } from '../firebase';
 import type { Business, Post, User, BusinessPostcard } from '../types';
+import type { User as SupabaseUser } from '@supabase/supabase-js';
 
 export enum OperationType {
   CREATE = 'create',
@@ -52,17 +53,12 @@ function handleFirestoreError(error: unknown, operationType: OperationType, path
   const errInfo: FirestoreErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData.map(provider => ({
-        providerId: provider.providerId,
-        displayName: provider.displayName,
-        email: provider.email,
-        photoUrl: provider.photoURL
-      })) || []
+      userId: undefined,
+      email: undefined,
+      emailVerified: undefined,
+      isAnonymous: undefined,
+      tenantId: undefined,
+      providerInfo: []
     },
     operationType,
     path
@@ -247,16 +243,27 @@ export const api = {
         }
     },
 
-    async getOrCreateProfile(firebaseUser: any, requestedRole: 'user' | 'owner' = 'user') {
-        if (!firebaseUser) return null;
-        
-        const path = `users/${firebaseUser.uid}`;
+    async getOrCreateProfile(supabaseUser: SupabaseUser, requestedRole: 'user' | 'owner' = 'user') {
+        if (!supabaseUser) return null;
+
+        const userId = supabaseUser.id;
+        const userEmail = supabaseUser.email || '';
+        const userEmailVerified = !!supabaseUser.email_confirmed_at;
+        const displayNameFromMetadata =
+            (typeof supabaseUser.user_metadata?.full_name === 'string' && supabaseUser.user_metadata.full_name) ||
+            (typeof supabaseUser.user_metadata?.name === 'string' && supabaseUser.user_metadata.name) ||
+            undefined;
+        const avatarFromMetadata =
+            (typeof supabaseUser.user_metadata?.avatar_url === 'string' && supabaseUser.user_metadata.avatar_url) ||
+            undefined;
+
+        const path = `users/${userId}`;
         try {
-            const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
-            
+            const userDoc = await getDoc(doc(db, 'users', userId));
+
             // Bootstrapping the first admin based on the provided User Email
             const adminEmail = 'safaribosafar@gmail.com';
-            const isAdminEmail = firebaseUser.email === adminEmail && firebaseUser.emailVerified;
+            const isAdminEmail = userEmail === adminEmail && userEmailVerified;
             
             if (userDoc.exists()) {
                 const userData = userDoc.data() as User;
@@ -264,7 +271,7 @@ export const api = {
                 // If it's the admin email, ensure they have the admin role in the DB
                 if (isAdminEmail && userData.role !== 'admin') {
                     const updatedUser = { ...userData, role: 'admin' as any };
-                    await setDoc(doc(db, 'users', firebaseUser.uid), updatedUser, { merge: true });
+                    await setDoc(doc(db, 'users', userId), updatedUser, { merge: true });
                     return updatedUser;
                 }
                 
@@ -272,14 +279,14 @@ export const api = {
             } else {
                 // New user creation
                 const newUser: User = {
-                    id: firebaseUser.uid,
-                    name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
-                    email: firebaseUser.email || '',
-                    avatar: firebaseUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${firebaseUser.uid}`,
+                    id: userId,
+                    name: displayNameFromMetadata || userEmail.split('@')[0] || 'User',
+                    email: userEmail,
+                    avatar: avatarFromMetadata || `https://api.dicebear.com/7.x/avataaars/svg?seed=${userId}`,
                     role: isAdminEmail ? 'admin' as any : requestedRole,
-                    businessId: requestedRole === 'owner' ? `b_${firebaseUser.uid}` : undefined
+                    businessId: requestedRole === 'owner' ? `b_${userId}` : undefined
                 };
-                await setDoc(doc(db, 'users', firebaseUser.uid), newUser);
+                await setDoc(doc(db, 'users', userId), newUser);
                 return newUser;
             }
         } catch (error) {
