@@ -83,61 +83,114 @@ async function testConnection() {
 }
 testConnection();
 
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+const supabaseRestUrl = supabaseUrl
+  ? `${supabaseUrl.replace(/\/$/, '')}/rest/v1/businesses`
+  : null;
+
+const FALLBACK_BUSINESSES: Business[] = [];
+
 export const api = {
-    async getBusinesses(params: { category?: string; city?: string; governorate?: string; lastDoc?: QueryDocumentSnapshot<DocumentData>; limit?: number; featuredOnly?: boolean } = {}) {
+    async getBusinesses(params: { category?: string; city?: string; governorate?: string; offset?: number; limit?: number; featuredOnly?: boolean } = {}) {
         const path = 'businesses';
-        try {
-            // Firestore requires the first orderBy to match the inequality filter field.
-            // If we search by city prefix, we must order by city first.
-            let q;
-            const searchStr = params.city?.trim();
-            
-            if (searchStr) {
-                q = query(collection(db, path), where('city', '>=', searchStr), where('city', '<=', searchStr + '\uf8ff'), orderBy('city'), orderBy('name'));
-            } else {
-                q = query(collection(db, path), orderBy('name'));
-            }
-            
-            if (params.category && params.category !== 'all') {
-                q = query(q, where('category', '==', params.category));
-            }
+        const pageSize = params.limit || 20;
+        const offset = params.offset || 0;
 
-            if (params.governorate && params.governorate !== 'all') {
-                q = query(q, where('governorate', '==', params.governorate));
-            }
-
-            if (params.featuredOnly) {
-                q = query(q, where('isFeatured', '==', true));
-            }
-            
-            if (params.lastDoc) {
-                q = query(q, startAfter(params.lastDoc));
-            }
-
-            const pageSize = params.limit || 20;
-            q = query(q, limit(pageSize));
-            
-            const snapshot = await getDocs(q);
-            const data = snapshot.docs.map(doc => {
-                const d = doc.data() as any;
-                return { 
-                    id: doc.id, 
-                    ...d,
-                    // Normalize verified status
-                    isVerified: d.isVerified ?? d.verified ?? false
-                } as Business;
-            });
-            const lastVisible = snapshot.docs[snapshot.docs.length - 1];
-
+        if (!supabaseRestUrl || !supabaseAnonKey) {
             return {
-                data,
-                lastDoc: lastVisible,
-                hasMore: data.length === pageSize
+                data: FALLBACK_BUSINESSES.slice(offset, offset + pageSize),
+                nextOffset: offset + pageSize,
+                hasMore: FALLBACK_BUSINESSES.length > offset + pageSize,
+                dataSource: 'fallback' as const,
+                envOk: false,
             };
-        } catch (error) {
-            handleFirestoreError(error, OperationType.GET, path);
-            return { data: [], hasMore: false };
         }
+
+        const searchParams = new URLSearchParams();
+        searchParams.set('select', 'id,name,name_ar,name_ku,image,image_url,cover_image,is_featured,is_premium,category,subcategory,rating,distance,reviews,review_count,is_verified,governorate,city,address,phone,whatsapp,website,description,description_ar,description_ku,open_hours,price_range,lat,lng');
+        searchParams.set('order', 'name.asc');
+
+        if (params.category && params.category !== 'all') {
+            searchParams.set('category', `eq.${params.category}`);
+        }
+        if (params.governorate && params.governorate !== 'all') {
+            searchParams.set('governorate', `eq.${params.governorate}`);
+        }
+        if (params.city && params.city.trim()) {
+            searchParams.set('city', `ilike.*${params.city.trim()}*`);
+        }
+        if (params.featuredOnly) {
+            searchParams.set('is_featured', 'eq.true');
+        }
+
+        const response = await fetch(`${supabaseRestUrl}?${searchParams.toString()}`, {
+            headers: {
+                apikey: supabaseAnonKey,
+                Authorization: `Bearer ${supabaseAnonKey}`,
+                Range: `${offset}-${offset + pageSize - 1}`,
+                Prefer: 'count=exact',
+            },
+        });
+
+        const countHeader = response.headers.get('content-range');
+        const total = countHeader?.split('/')?.[1] ? Number(countHeader.split('/')[1]) : 0;
+        const data = response.ok ? await response.json() : [];
+        if (!response.ok) {
+            const errorText = await response.text();
+            const msg = errorText.toLowerCase();
+            const isSchemaError = msg.includes('column') || msg.includes('does not exist');
+            if (!isSchemaError) {
+                return {
+                    data: FALLBACK_BUSINESSES.slice(offset, offset + pageSize),
+                    nextOffset: offset + pageSize,
+                    hasMore: FALLBACK_BUSINESSES.length > offset + pageSize,
+                    dataSource: 'fallback' as const,
+                    envOk: true,
+                };
+            }
+            throw new Error(`Supabase businesses query failed: ${errorText}`);
+        }
+
+        const mapped = (data || []).map((row: any) => ({
+            id: row.id,
+            name: row.name,
+            nameAr: row.name_ar,
+            nameKu: row.name_ku,
+            image: row.image,
+            imageUrl: row.image_url,
+            coverImage: row.cover_image,
+            isFeatured: row.is_featured,
+            isPremium: row.is_premium,
+            category: row.category,
+            subcategory: row.subcategory,
+            rating: row.rating ?? 0,
+            distance: row.distance,
+            reviews: row.reviews,
+            reviewCount: row.review_count,
+            isVerified: row.is_verified ?? false,
+            governorate: row.governorate,
+            city: row.city,
+            address: row.address,
+            phone: row.phone,
+            whatsapp: row.whatsapp,
+            website: row.website,
+            description: row.description,
+            descriptionAr: row.description_ar,
+            descriptionKu: row.description_ku,
+            openHours: row.open_hours,
+            priceRange: row.price_range,
+            lat: row.lat,
+            lng: row.lng,
+        } as Business));
+
+        return {
+            data: mapped,
+            nextOffset: offset + mapped.length,
+            hasMore: offset + mapped.length < total,
+            dataSource: 'live' as const,
+            envOk: true,
+        };
     },
 
     /**

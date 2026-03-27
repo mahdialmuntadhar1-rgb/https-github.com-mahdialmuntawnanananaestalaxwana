@@ -115,7 +115,9 @@ interface BusinessDirectoryProps {
 type GetBusinessesResult = {
   data: Business[];
   hasMore: boolean;
-  lastId?: string;
+  nextOffset?: number;
+  dataSource?: "live" | "fallback";
+  envOk?: boolean;
 };
 
 export const BusinessDirectory: React.FC<BusinessDirectoryProps> = ({ initialFilter, onBack }) => {
@@ -130,7 +132,11 @@ export const BusinessDirectory: React.FC<BusinessDirectoryProps> = ({ initialFil
   const [pageSize] = useState(20);
 
   const [businessesData, setBusinessesData] = useState<Business[]>([]);
-  const [lastId, setLastId] = useState<string | undefined>(undefined);
+  const [offset, setOffset] = useState<number>(0);
+  const [dataSource, setDataSource] = useState<"live" | "fallback">("live");
+  const [envOk, setEnvOk] = useState<boolean>(
+    Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY)
+  );
 
   const [hasMore, setHasMore] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -144,7 +150,7 @@ export const BusinessDirectory: React.FC<BusinessDirectoryProps> = ({ initialFil
       city: initialFilter?.city || "",
       governorate: initialFilter?.governorate || "all",
     });
-    setLastId(undefined);
+    setOffset(0);
   }, [initialFilter]);
 
   const fetchBusinesses = async (isLoadMore = false) => {
@@ -156,13 +162,15 @@ export const BusinessDirectory: React.FC<BusinessDirectoryProps> = ({ initialFil
         category: filters.category,
         city: filters.city,
         governorate: filters.governorate,
-        lastId: isLoadMore ? lastId : undefined,
+        offset: isLoadMore ? offset : 0,
         limit: pageSize,
       })) as GetBusinessesResult;
 
       setBusinessesData((prev) => (isLoadMore ? [...prev, ...result.data] : result.data));
-      setLastId(result.lastId);
+      setOffset(result.nextOffset ?? (isLoadMore ? offset + result.data.length : result.data.length));
       setHasMore(result.hasMore);
+      setDataSource(result.dataSource || "live");
+      setEnvOk(result.envOk ?? envOk);
     } catch (err) {
       console.error("Error fetching businesses:", err);
       setError(t("directory.errorLoading") || "Failed to load businesses. Please try again.");
@@ -179,6 +187,9 @@ export const BusinessDirectory: React.FC<BusinessDirectoryProps> = ({ initialFil
   return (
     <section className="py-16">
       <div className="container mx-auto px-4">
+        <div className="text-[11px] text-white/40 text-end mb-2 pointer-events-none select-none">
+          {envOk ? "ENV OK" : "ENV MISSING"} • DATA: {dataSource === "live" ? "LIVE" : "FALLBACK"}
+        </div>
         <div className="flex items-center justify-center relative mb-8">
           {onBack && (
             <button
