@@ -1,282 +1,342 @@
-// services/api.ts
-import type { Business, Post, User, BusinessPostcard } from "../types";
-import { supabase, hasSupabaseEnv, querySupabase } from "../src/lib/supabase";
+import { 
+    collection, 
+    getDocs, 
+    query, 
+    where, 
+    limit, 
+    startAfter, 
+    orderBy, 
+    addDoc, 
+    serverTimestamp, 
+    doc, 
+    getDoc, 
+    setDoc,
+    getDocFromServer,
+    Timestamp,
+    onSnapshot,
+    QueryDocumentSnapshot,
+    DocumentData
+} from 'firebase/firestore';
+import { db, auth } from '../firebase';
+import type { Business, Post, User, BusinessPostcard } from '../types';
 
-/**
- * Data source status for the small debug chip in the UI.
- */
-type BusinessDataSource = "live" | "fallback";
-let businessDataSource: BusinessDataSource = hasSupabaseEnv ? "live" : "fallback";
-
-function isSchemaMismatchError(errorMessage: string): boolean {
-  const normalized = errorMessage.toLowerCase();
-  return (
-    normalized.includes("column") &&
-    normalized.includes("does not exist")
-  );
+export enum OperationType {
+  CREATE = 'create',
+  UPDATE = 'update',
+  DELETE = 'delete',
+  LIST = 'list',
+  GET = 'get',
+  WRITE = 'write',
 }
 
-function mapSupabaseBusiness(row: Record<string, any>): Business {
-  return {
-    id: row.id,
-    name: row.name || row.title || "Unnamed business",
-    nameAr: row.name_ar ?? row.nameAr,
-    nameKu: row.name_ku ?? row.nameKu,
-    coverImage: row.cover_image ?? row.coverImage,
-    imageUrl: row.image_url ?? row.imageUrl ?? row.hero_image,
-    category: row.category ?? row.category_tag ?? "other",
-    rating: Number(row.rating ?? 0),
-    reviewCount: Number(row.review_count ?? row.reviewCount ?? 0),
-    reviews: Number(row.review_count ?? row.reviewCount ?? 0),
-    distance: row.distance,
-    city: row.city,
-    governorate: row.governorate,
-    isFeatured: Boolean(row.is_featured ?? row.isFeatured ?? false),
-    isPremium: Boolean(row.is_premium ?? row.isPremium ?? false),
-
-    // IMPORTANT: never read "verified" column; only use isVerified if it exists, otherwise false
-    isVerified: Boolean(row.is_verified ?? row.isVerified ?? false),
-
-    status: row.status,
-    phone: row.phone,
-    address: row.address,
-    website: row.website,
-    description: row.description,
-  } as Business;
-}
-
-function getErrorMessage(error: unknown, fallback: string): string {
-  if (!error) return fallback;
-  if (typeof error === "string") return error;
-  if (typeof error === "object") {
-    const maybeMessage = (error as { message?: string }).message;
-    if (maybeMessage) return maybeMessage;
+interface FirestoreErrorInfo {
+  error: string;
+  operationType: OperationType;
+  path: string | null;
+  authInfo: {
+    userId: string | undefined;
+    email: string | null | undefined;
+    emailVerified: boolean | undefined;
+    isAnonymous: boolean | undefined;
+    tenantId: string | null | undefined;
+    providerInfo: {
+      providerId: string;
+      displayName: string | null;
+      email: string | null;
+      photoUrl: string | null;
+    }[];
   }
-  return fallback;
 }
 
-function normalizeRole(role: unknown): User["role"] {
-  if (role === "owner" || role === "admin") return role;
-  return "user";
-}
-
-function buildNameFromAuth(authUser: { email?: string; user_metadata?: Record<string, any> }): string {
-  const metadata = authUser.user_metadata || {};
-  const fullName = metadata.full_name || metadata.name;
-  if (typeof fullName === "string" && fullName.trim()) return fullName.trim();
-
-  if (authUser.email) {
-    const localPart = authUser.email.split("@")[0] || "Iraq Compass User";
-    return localPart.replace(/[._-]+/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+function handleFirestoreError(error: unknown, operationType: OperationType, path: string | null) {
+  const errInfo: FirestoreErrorInfo = {
+    error: error instanceof Error ? error.message : String(error),
+    authInfo: {
+      userId: auth.currentUser?.uid,
+      email: auth.currentUser?.email,
+      emailVerified: auth.currentUser?.emailVerified,
+      isAnonymous: auth.currentUser?.isAnonymous,
+      tenantId: auth.currentUser?.tenantId,
+      providerInfo: auth.currentUser?.providerData.map(provider => ({
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+        email: provider.email,
+        photoUrl: provider.photoURL
+      })) || []
+    },
+    operationType,
+    path
   }
-
-  return "Iraq Compass User";
+  console.error('Firestore Error: ', JSON.stringify(errInfo));
+  throw new Error(JSON.stringify(errInfo));
 }
 
-function mapProfileRowToUser(row: Record<string, any>, authUser: { id: string; email?: string; user_metadata?: Record<string, any> }, fallbackRole: "user" | "owner"): User {
-  const role = normalizeRole(row.role ?? fallbackRole);
-  const avatar = row.avatar_url ?? row.avatar ?? authUser.user_metadata?.avatar_url ?? authUser.user_metadata?.picture ?? `https://i.pravatar.cc/150?u=${authUser.id}`;
-
-  return {
-    id: String(row.id ?? authUser.id),
-    name: row.name ?? buildNameFromAuth(authUser),
-    email: row.email ?? authUser.email ?? "",
-    avatar,
-    role,
-    businessId: row.business_id ?? row.businessId ?? undefined,
-  };
+// Test connection
+async function testConnection() {
+  try {
+    await getDocFromServer(doc(db, 'test', 'connection'));
+  } catch (error) {
+    if(error instanceof Error && error.message.includes('the client is offline')) {
+      console.error("Please check your Firebase configuration. ");
+    }
+  }
 }
+testConnection();
 
 export const api = {
-  /**
-   * Business directory: Supabase REST paging (offset + limit).
-   * Loads ~1000 rows progressively (20 per page), no UI distortion.
-   */
-  async getBusinesses(
-    params: {
-      category?: string;
-      ratingMin?: number;
-      city?: string;
-      governorate?: string;
-      offset?: number;
-      limit?: number;
-      featuredOnly?: boolean;
-    } = {},
-  ) {
-    const path = "businesses";
-    const pageSize = params.limit ?? 20;
-    const offset = params.offset ?? 0;
+    async getBusinesses(params: { category?: string; city?: string; governorate?: string; lastDoc?: QueryDocumentSnapshot<DocumentData>; limit?: number; featuredOnly?: boolean } = {}) {
+        const path = 'businesses';
+        try {
+            // Firestore requires the first orderBy to match the inequality filter field.
+            // If we search by city prefix, we must order by city first.
+            let q;
+            const searchStr = params.city?.trim();
+            
+            if (searchStr) {
+                q = query(collection(db, path), where('city', '>=', searchStr), where('city', '<=', searchStr + '\uf8ff'), orderBy('city'), orderBy('name'));
+            } else {
+                q = query(collection(db, path), orderBy('name'));
+            }
+            
+            if (params.category && params.category !== 'all') {
+                q = query(q, where('category', '==', params.category));
+            }
 
-    if (!hasSupabaseEnv) {
-      businessDataSource = "fallback";
-      // Keep fallback empty; do not silently switch to any alternate backend.
-      return { data: [] as Business[], hasMore: false, nextOffset: offset, totalCount: undefined, source: businessDataSource };
+            if (params.governorate && params.governorate !== 'all') {
+                q = query(q, where('governorate', '==', params.governorate));
+            }
+
+            if (params.featuredOnly) {
+                q = query(q, where('isFeatured', '==', true));
+            }
+            
+            if (params.lastDoc) {
+                q = query(q, startAfter(params.lastDoc));
+            }
+
+            const pageSize = params.limit || 20;
+            q = query(q, limit(pageSize));
+            
+            const snapshot = await getDocs(q);
+            const data = snapshot.docs.map(doc => {
+                const d = doc.data() as any;
+                return { 
+                    id: doc.id, 
+                    ...d,
+                    // Normalize verified status
+                    isVerified: d.isVerified ?? d.verified ?? false
+                } as Business;
+            });
+            const lastVisible = snapshot.docs[snapshot.docs.length - 1];
+
+            return {
+                data,
+                lastDoc: lastVisible,
+                hasMore: data.length === pageSize
+            };
+        } catch (error) {
+            handleFirestoreError(error, OperationType.GET, path);
+            return { data: [], hasMore: false };
+        }
+    },
+
+    /**
+     * Real-time subscription for the social feed.
+     * Real-time is used here because social feeds are dynamic and users expect to see
+     * new posts, likes, and updates immediately without refreshing.
+     */
+    subscribeToPosts(callback: (posts: Post[]) => void) {
+        const path = 'posts';
+        const q = query(collection(db, path), orderBy('createdAt', 'desc'), limit(50));
+        
+        return onSnapshot(q, (snapshot) => {
+            const postsMap = new Map<string, Post>();
+            
+            snapshot.docs.forEach(doc => {
+                const data = doc.data();
+                const post = { 
+                    id: doc.id, 
+                    ...data,
+                    createdAt: data.createdAt ? (data.createdAt as Timestamp).toDate() : new Date()
+                } as Post;
+                postsMap.set(post.id, post);
+            });
+            
+            // Convert map back to array and ensure order is maintained (Map preserves insertion order)
+            callback(Array.from(postsMap.values()));
+        }, (error) => {
+            handleFirestoreError(error, OperationType.GET, path);
+        });
+    },
+
+    /**
+     * One-time fetch for deals.
+     * One-time fetch is used because deals are relatively static listings that don't
+     * change frequently enough to justify the overhead of a real-time connection.
+     */
+    async getDeals() {
+        const path = 'deals';
+        try {
+            const q = query(collection(db, path), orderBy('createdAt', 'desc'), limit(10));
+            const snapshot = await getDocs(q);
+            return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+        } catch (error) {
+            handleFirestoreError(error, OperationType.GET, path);
+            return [];
+        }
+    },
+
+    /**
+     * One-time fetch for stories.
+     * Stories are fetched once on load to provide a stable browsing experience.
+     */
+    async getStories() {
+        const path = 'stories';
+        try {
+            const q = query(collection(db, path), orderBy('createdAt', 'desc'), limit(20));
+            const snapshot = await getDocs(q);
+            return snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+        } catch (error) {
+            handleFirestoreError(error, OperationType.GET, path);
+            return [];
+        }
+    },
+
+    /**
+     * One-time fetch for events.
+     * Events are scheduled items; real-time updates are not critical for a general directory view.
+     */
+    async getEvents(params: { category?: string; governorate?: string } = {}) {
+        const path = 'events';
+        try {
+            let q = query(collection(db, path), orderBy('date', 'asc'));
+            if (params.category && params.category !== 'all') {
+                q = query(q, where('category', '==', params.category));
+            }
+            if (params.governorate && params.governorate !== 'all') {
+                q = query(q, where('governorate', '==', params.governorate));
+            }
+            const snapshot = await getDocs(q);
+            return snapshot.docs.map(doc => {
+                const data = doc.data();
+                return {
+                    id: doc.id,
+                    ...data,
+                    date: data.date ? (data.date as Timestamp).toDate() : new Date()
+                } as any;
+            });
+        } catch (error) {
+            handleFirestoreError(error, OperationType.GET, path);
+            return [];
+        }
+    },
+
+    async createPost(postData: Partial<Post>) {
+        const path = 'posts';
+        try {
+            const docRef = await addDoc(collection(db, path), {
+                ...postData,
+                createdAt: serverTimestamp(),
+                likes: 0
+            });
+            return { success: true, id: docRef.id };
+        } catch (error) {
+            handleFirestoreError(error, OperationType.WRITE, path);
+            return { success: false };
+        }
+    },
+
+    async getOrCreateProfile(firebaseUser: any, requestedRole: 'user' | 'owner' = 'user') {
+        if (!firebaseUser) return null;
+        
+        const path = `users/${firebaseUser.uid}`;
+        try {
+            const userDoc = await getDoc(doc(db, 'users', firebaseUser.uid));
+            
+            // Check if this is the admin email for bootstrapping
+            const isAdminEmail = firebaseUser.email === 'safaribosafar@gmail.com';
+            
+            if (userDoc.exists()) {
+                const userData = userDoc.data() as User;
+                
+                // If it's the admin email, ensure they have the admin role in the DB
+                if (isAdminEmail && userData.role !== 'admin') {
+                    const updatedUser = { ...userData, role: 'admin' as any };
+                    await setDoc(doc(db, 'users', firebaseUser.uid), updatedUser, { merge: true });
+                    return updatedUser;
+                }
+                
+                return userData;
+            } else {
+                // New user creation
+                const newUser: User = {
+                    id: firebaseUser.uid,
+                    name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
+                    email: firebaseUser.email || '',
+                    avatar: firebaseUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${firebaseUser.uid}`,
+                    role: isAdminEmail ? 'admin' as any : requestedRole,
+                    businessId: requestedRole === 'owner' ? `b_${firebaseUser.uid}` : undefined
+                };
+                await setDoc(doc(db, 'users', firebaseUser.uid), newUser);
+                return newUser;
+            }
+        } catch (error) {
+            handleFirestoreError(error, OperationType.WRITE, path);
+            return null;
+        }
+    },
+
+    async upsertPostcard(postcard: BusinessPostcard) {
+        const path = 'business_postcards';
+        try {
+            const docId = `${postcard.title}_${postcard.city}`.replace(/\s+/g, '_').toLowerCase();
+            const docRef = doc(db, path, docId);
+            
+            await setDoc(docRef, {
+                ...postcard,
+                updatedAt: serverTimestamp()
+            }, { merge: true });
+            
+            return { success: true, id: docId };
+        } catch (error) {
+            handleFirestoreError(error, OperationType.WRITE, path);
+            return { success: false };
+        }
+    },
+
+    async getPostcards(governorate?: string) {
+        const path = 'business_postcards';
+        try {
+            let q = query(collection(db, path), orderBy('updatedAt', 'desc'));
+            if (governorate && governorate !== 'all') {
+                q = query(q, where('governorate', '==', governorate));
+            }
+            const snapshot = await getDocs(q);
+            return snapshot.docs.map(doc => {
+                const data = doc.data();
+                return { 
+                    id: doc.id, 
+                    ...data,
+                    updatedAt: data.updatedAt ? (data.updatedAt as Timestamp).toDate() : undefined
+                } as BusinessPostcard;
+            });
+        } catch (error) {
+            handleFirestoreError(error, OperationType.GET, path);
+            return [];
+        }
+    },
+
+    async updateProfile(userId: string, data: Partial<User>) {
+        const path = `users/${userId}`;
+        try {
+            await setDoc(doc(db, 'users', userId), {
+                ...data,
+                updatedAt: serverTimestamp()
+            }, { merge: true });
+            return { success: true };
+        } catch (error) {
+            handleFirestoreError(error, OperationType.WRITE, path);
+            return { success: false };
+        }
     }
-
-    const filters: string[] = [];
-
-    if (params.category && params.category !== "all") {
-      // support category or category_tag
-      filters.push(`or=category.eq.${encodeURIComponent(params.category)},category_tag.eq.${encodeURIComponent(params.category)}`);
-    }
-
-    if (params.governorate && params.governorate !== "all") {
-      filters.push(`governorate=eq.${encodeURIComponent(params.governorate)}`);
-    }
-
-    if (params.featuredOnly) {
-      filters.push("is_featured=eq.true");
-    }
-
-    if (typeof params.ratingMin === "number" && params.ratingMin > 0) {
-      filters.push(`rating=gte.${params.ratingMin}`);
-    }
-
-    if (params.city?.trim()) {
-      filters.push(`city=ilike.*${encodeURIComponent(params.city.trim())}*`);
-    }
-
-    const { data, error, count } = await querySupabase(path, {
-      select:
-        "id,name,name_ar,name_ku,cover_image,image_url,hero_image,category,category_tag,rating,review_count,distance,city,governorate,is_featured,is_premium,status,phone,address,website,description",
-      orderBy: "name",
-      ascending: true,
-      offset,
-      limit: pageSize,
-      filters,
-    });
-
-    if (error) {
-      // If Supabase env exists but query fails, DO NOT silently fallback.
-      if (isSchemaMismatchError(error)) {
-        throw new Error(
-          "Directory data is temporarily unavailable due to a database schema mismatch. Please contact support or try again later.",
-        );
-      }
-      throw new Error(`Supabase query failed: ${error}`);
-    }
-
-    businessDataSource = "live";
-    const mapped = (data ?? []).map((row) => mapSupabaseBusiness(row as Record<string, any>));
-    const nextOffset = offset + mapped.length;
-
-    return {
-      data: mapped,
-      hasMore: typeof count === "number" ? nextOffset < count : mapped.length === pageSize,
-      nextOffset,
-      totalCount: count ?? undefined,
-      source: businessDataSource,
-    };
-  },
-
-  getBusinessDataSourceStatus() {
-    return { envOk: hasSupabaseEnv, dataSource: businessDataSource } as const;
-  },
-
-  subscribeToPosts(_callback: (posts: Post[]) => void) {
-    // MVP containment: provide a static empty feed and avoid hanging loading states.
-    _callback([]);
-    return () => {};
-  },
-
-  async getDeals() {
-    return [];
-  },
-
-  async getStories() {
-    return [];
-  },
-
-  async getEvents(_params: { category?: string; governorate?: string } = {}) {
-    return [];
-  },
-
-  async createPost(_postData: Partial<Post>) {
-    return { success: false };
-  },
-
-  async getCurrentProfile() {
-    const { data } = await supabase.auth.getSession();
-    const authUser = data.session?.user;
-    if (!authUser) return null;
-
-    return this.getOrCreateProfile(authUser, "user");
-  },
-
-  async getOrCreateProfile(authUser: any, requestedRole: "user" | "owner" = "user") {
-    if (!authUser?.id) {
-      return null as User | null;
-    }
-
-    const fallbackUser = mapProfileRowToUser({ role: requestedRole }, authUser, requestedRole);
-
-    if (!hasSupabaseEnv) {
-      return fallbackUser;
-    }
-
-    const { data: existingProfile, error: selectError } = await supabase.select("profiles", {
-      filters: [{ key: "id", op: "eq", value: authUser.id }],
-      single: true,
-    });
-
-    if (selectError) {
-      console.warn("Failed to fetch profile; using session-backed fallback profile.", selectError);
-      return fallbackUser;
-    }
-
-    if (existingProfile) {
-      return mapProfileRowToUser(existingProfile as Record<string, any>, authUser, requestedRole);
-    }
-
-    const profilePayload = {
-      id: authUser.id,
-      name: buildNameFromAuth(authUser),
-      email: authUser.email ?? "",
-      avatar_url: authUser.user_metadata?.avatar_url ?? authUser.user_metadata?.picture ?? `https://i.pravatar.cc/150?u=${authUser.id}`,
-      role: requestedRole,
-    };
-
-    const { data: createdProfile, error: insertError } = await supabase.insert("profiles", profilePayload, true);
-
-    if (insertError) {
-      console.warn("Failed to create profile row; using session-backed fallback profile.", insertError);
-      return fallbackUser;
-    }
-
-    return mapProfileRowToUser((createdProfile as Record<string, any>) || profilePayload, authUser, requestedRole);
-  },
-
-  async upsertPostcard(_postcard: BusinessPostcard) {
-    return { success: false };
-  },
-
-  async getPostcards(_governorate?: string) {
-    return [] as BusinessPostcard[];
-  },
-
-  async updateProfile(userId: string, data: Partial<User>) {
-    if (!userId) {
-      return { success: false, error: "Missing user id." };
-    }
-
-    if (!hasSupabaseEnv) {
-      return { success: false, error: "Supabase environment variables are missing." };
-    }
-
-    const payload: Record<string, unknown> = {};
-    if (typeof data.name === "string") payload.name = data.name.trim();
-    if (typeof data.email === "string") payload.email = data.email.trim();
-    if (typeof data.avatar === "string") payload.avatar_url = data.avatar;
-
-    if (!Object.keys(payload).length) {
-      return { success: false, error: "No profile fields to update." };
-    }
-
-    const { error } = await supabase.update("profiles", payload, [{ key: "id", value: userId }]);
-    if (error) {
-      return { success: false, error: getErrorMessage(error, "Failed to update profile.") };
-    }
-
-    return { success: true };
-  },
 };

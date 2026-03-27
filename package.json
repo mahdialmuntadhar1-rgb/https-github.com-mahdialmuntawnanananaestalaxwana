@@ -7,10 +7,11 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "lint": "tsc --noEmit",
-    "verify": "npm run lint && npm run build && powershell -NoProfile -ExecutionPolicy Bypass -Command \"if (Get-ChildItem -Recurse dist -Filter *.js | Select-String -Pattern 'verified=eq.true|businesses.verified') { Write-Host 'Forbidden verified string found in dist JS' -ForegroundColor Red; exit 1 } else { Write-Host 'Verify passed: no forbidden verified strings found.' -ForegroundColor Green; exit 0 }\""
+    "lint": "tsc --noEmit"
   },
   "dependencies": {
+    "@google/genai": "latest",
+    "firebase": "^12.11.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0"
   },
@@ -21,4 +22,3 @@
     "vite": "^6.2.0"
   }
 }
-

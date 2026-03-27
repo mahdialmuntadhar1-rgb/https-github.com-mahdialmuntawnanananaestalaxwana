@@ -16,8 +16,10 @@ import { Dashboard } from './components/Dashboard';
 import { SubcategoryModal } from './components/SubcategoryModal';
 import { GovernorateFilter } from './components/GovernorateFilter';
 import { SearchPortal } from './components/SearchPortal';
+import { mockUser } from './constants';
 import { api } from './services/api';
-import { supabase } from './src/lib/supabase';
+import { auth } from './firebase';
+import { onAuthStateChanged, signOut } from 'firebase/auth';
 import type { User, Category, Subcategory, Post } from './types';
 import { TranslationProvider } from './hooks/useTranslations';
 
@@ -62,7 +64,6 @@ class ErrorBoundary extends (React.Component as any) {
 }
 
 const MainContent: React.FC = () => {
-  const buildStamp = `${__BUILD_SHA__.slice(0, 8)} @ ${new Date(__BUILD_TIME__).toISOString()}`;
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [isAuthReady, setIsAuthReady] = useState(false);
@@ -75,9 +76,6 @@ const MainContent: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [posts, setPosts] = useState<Post[]>([]);
   const [isSocialLoading, setIsSocialLoading] = useState(true);
-
-  const [dataStatus, setDataStatus] = useState(api.getBusinessDataSourceStatus());
-
   const [highContrast, setHighContrast] = useState(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('iraq-compass-high-contrast') === 'true';
@@ -86,39 +84,22 @@ const MainContent: React.FC = () => {
   });
 
   useEffect(() => {
-    const bootstrapFromSession = async (authUser: { id: string } | null | undefined) => {
-      if (!authUser) {
-        setCurrentUser(null);
-        setIsLoggedIn(false);
-        return;
-      }
-
-      const pendingRole = sessionStorage.getItem('pending_role') as 'user' | 'owner' | null;
-
-      try {
-        const user = await api.getOrCreateProfile(authUser, pendingRole || 'user');
+    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+      if (firebaseUser) {
+        // Retrieve the role from sessionStorage if it was set during the AuthModal flow
+        const pendingRole = sessionStorage.getItem('pending_role') as 'user' | 'owner' | null;
+        const user = await api.getOrCreateProfile(firebaseUser, pendingRole || 'user');
         setCurrentUser(user);
-        setIsLoggedIn(Boolean(user));
-      } catch (error) {
-        console.error('Profile bootstrap error:', error);
+        setIsLoggedIn(!!user);
+        sessionStorage.removeItem('pending_role');
+      } else {
         setCurrentUser(null);
         setIsLoggedIn(false);
-      } finally {
-        sessionStorage.removeItem('pending_role');
       }
-    };
-
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
-      await bootstrapFromSession(session?.user);
       setIsAuthReady(true);
     });
 
-    supabase.auth.getSession().then(async ({ data }) => {
-      await bootstrapFromSession(data.session?.user);
-      setIsAuthReady(true);
-    });
-
-    return () => authListener.subscription.unsubscribe();
+    return () => unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -128,14 +109,6 @@ const MainContent: React.FC = () => {
       setIsSocialLoading(false);
     });
     return () => unsubscribe();
-  }, []);
-
-
-  useEffect(() => {
-    const updateDataStatus = () => setDataStatus(api.getBusinessDataSourceStatus());
-    updateDataStatus();
-    const timer = window.setInterval(updateDataStatus, 1500);
-    return () => window.clearInterval(timer);
   }, []);
 
   useEffect(() => {
@@ -149,18 +122,15 @@ const MainContent: React.FC = () => {
   }, [highContrast]);
 
   const handleLogin = (role: 'user' | 'owner') => {
-    // Auth is handled in AuthModal via Supabase Auth.
+    // Auth is handled in AuthModal via signInWithPopup, 
+    // which triggers onAuthStateChanged above.
+    // We store the role in sessionStorage to be picked up by the listener.
     sessionStorage.setItem('pending_role', role);
     setShowAuthModal(false);
   };
 
   const handleLogout = async () => {
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      console.error('Sign out failed:', error);
-      return;
-    }
-
+    await signOut(auth);
     setIsLoggedIn(false);
     setCurrentUser(null);
     setPage('home');
@@ -232,7 +202,7 @@ const MainContent: React.FC = () => {
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
                     <div className="lg:col-span-2">
                         <h2 className="text-3xl font-bold text-white mb-8">Social Ecosystem</h2>
-                        <SocialFeed posts={posts} isLoading={isSocialLoading} isMvpPreview />
+                        <SocialFeed posts={posts} isLoading={isSocialLoading} />
                     </div>
                     <div className="space-y-12">
                         <SearchPortal onSearch={handleSearch} />
@@ -262,7 +232,7 @@ const MainContent: React.FC = () => {
                 onBack={() => navigateTo('home')} 
             />
         )}
-        {page === 'dashboard' && currentUser && <Dashboard user={currentUser} onLogout={handleLogout} />}
+        {page === 'dashboard' && <Dashboard user={currentUser!} onLogout={handleLogout} />}
       </main>
       {showAuthModal && <AuthModal onClose={() => setShowAuthModal(false)} onLogin={handleLogin} />}
       <SubcategoryModal 
@@ -270,14 +240,6 @@ const MainContent: React.FC = () => {
         onClose={() => setSelectedCategory(null)}
         onSubcategorySelect={handleSubcategorySelect}
       />
-      <div className="fixed bottom-2 right-3 z-50 pointer-events-none">
-        <div className="text-[10px] tracking-wide uppercase px-2 py-1 rounded-md bg-black/35 border border-white/20 text-white/60">
-          {dataStatus.envOk ? 'ENV OK' : 'ENV MISSING'} · DATA: {dataStatus.dataSource === 'live' ? 'LIVE' : 'FALLBACK'}
-          <div className="normal-case tracking-normal text-white/50">
-            build {buildStamp}
-          </div>
-        </div>
-      </div>
     </div>
   );
 };

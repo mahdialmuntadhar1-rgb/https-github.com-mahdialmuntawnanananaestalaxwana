@@ -8,35 +8,16 @@ import { GlassCard } from './GlassCard';
 export const FeaturedBusinesses: React.FC = () => {
   const [businesses, setBusinesses] = useState<Business[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const { t, lang } = useTranslations();
 
   useEffect(() => {
     const fetchFeatured = async () => {
       setIsLoading(true);
-      setError(null);
       try {
-        const featuredResult = await api.getBusinesses({ featuredOnly: true, limit: 10 });
-        setBusinesses(featuredResult.data);
+        const result = await api.getBusinesses({ featuredOnly: true, limit: 10 });
+        setBusinesses(result.data);
       } catch (error) {
-        console.warn('Featured filter failed, retrying with safe fallback:', error);
-        try {
-          const fallbackResult = await api.getBusinesses({ limit: 40 });
-          const safelyFeatured = fallbackResult.data
-            .filter((business) => business.isFeatured || business.isPremium)
-            .slice(0, 10);
-          setBusinesses(safelyFeatured);
-          if (safelyFeatured.length === 0) {
-            setError(t('featured.noFeatured') || 'No featured businesses are currently flagged in the database.');
-          }
-        } catch (fallbackError) {
-          console.error('Error fetching featured businesses:', fallbackError);
-          setError(
-            fallbackError instanceof Error && fallbackError.message
-              ? fallbackError.message
-              : t('directory.errorLoading') || 'Failed to load businesses. Please try again.',
-          );
-        }
+        console.error('Error fetching featured businesses:', error);
       } finally {
         setIsLoading(false);
       }
@@ -59,11 +40,6 @@ export const FeaturedBusinesses: React.FC = () => {
         <h2 className="text-3xl font-bold text-white mb-8 text-center">
           {t('featured.title')}
         </h2>
-        {error && (
-          <div className="mb-6 rounded-xl border border-red-400/40 bg-red-500/10 px-4 py-3 text-sm text-red-100 text-center">
-            {error}
-          </div>
-        )}
         <div className="flex gap-6 overflow-x-auto pb-4 scrollbar-hide snap-x snap-mandatory">
           {businesses.length === 0 ? (
             <div className="w-full py-12 flex flex-col items-center justify-center text-center opacity-50">
@@ -77,11 +53,6 @@ export const FeaturedBusinesses: React.FC = () => {
                                  business.name;
             const displayImage = business.coverImage || business.imageUrl || business.image || 'https://picsum.photos/seed/placeholder/600/400';
             const isPremium = business.isPremium || business.isFeatured;
-            const websiteUrl = business.website
-              ? /^https?:\/\//i.test(business.website)
-                ? business.website
-                : `https://${business.website}`
-              : null;
             
             return (
             <GlassCard
@@ -125,38 +96,12 @@ export const FeaturedBusinesses: React.FC = () => {
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
-                  {websiteUrl ? (
-                    <a
-                      href={websiteUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-primary to-secondary text-white font-medium text-sm hover:shadow-glow-primary transition-all duration-200 text-center"
-                    >
-                      {t('actions.details')}
-                    </a>
-                  ) : (
-                    <button
-                      disabled
-                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-primary/60 to-secondary/60 text-white/70 font-medium text-sm cursor-not-allowed"
-                    >
-                      {t('directory.viewProfile')} ({t('directory.unavailable') || 'Unavailable'})
-                    </button>
-                  )}
-                  {business.phone ? (
-                    <a
-                      href={`tel:${business.phone}`}
-                      className="px-4 py-2 rounded-xl backdrop-blur-xl bg-white/10 border border-white/20 text-white font-medium text-sm hover:bg-white/20 transition-all duration-200 text-center"
-                    >
-                      {t('directory.contact')}
-                    </a>
-                  ) : (
-                    <button
-                      disabled
-                      className="px-4 py-2 rounded-xl backdrop-blur-xl bg-white/10 border border-white/20 text-white/60 font-medium text-sm cursor-not-allowed"
-                    >
-                      {t('directory.contact')} ({t('directory.unavailable') || 'Unavailable'})
-                    </button>
-                  )}
+                  <button className="px-4 py-2 rounded-xl bg-gradient-to-r from-primary to-secondary text-white font-medium text-sm hover:shadow-glow-primary transition-all duration-200">
+                    {t('actions.book')}
+                  </button>
+                  <button className="px-4 py-2 rounded-xl backdrop-blur-xl bg-white/10 border border-white/20 text-white font-medium text-sm hover:bg-white/20 transition-all duration-200">
+                    {t('actions.details')}
+                  </button>
                 </div>
               </div>
             </GlassCard>

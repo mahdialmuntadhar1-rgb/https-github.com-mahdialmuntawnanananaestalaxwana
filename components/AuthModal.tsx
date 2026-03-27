@@ -1,96 +1,33 @@
 import React, { useState } from 'react';
-import { X } from './icons';
+import { X, User } from './icons';
 import { useTranslations } from '../hooks/useTranslations';
-import { supabase } from '../src/lib/supabase';
+import { auth } from '../firebase';
+import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 
 interface AuthModalProps {
     onClose: () => void;
     onLogin: (role: 'user' | 'owner') => void;
 }
 
-const getFriendlyAuthError = (error: unknown): string => {
-    if (!error) return 'Something went wrong. Please try again.';
-
-    if (typeof error === 'string') return error;
-
-    if (typeof error === 'object' && error !== null) {
-        const maybeMessage = (error as { message?: string }).message;
-        if (maybeMessage) return maybeMessage;
-    }
-
-    return 'Authentication failed. Please try again.';
-};
-
 export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onLogin }) => {
     const [activeTab, setActiveTab] = useState<'signin' | 'signup'>('signin');
     const [role, setRole] = useState<'user' | 'owner'>('user');
     const [isLoading, setIsLoading] = useState(false);
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [authMessage, setAuthMessage] = useState<{ type: 'error' | 'info'; text: string } | null>(null);
     const { t } = useTranslations();
     
     const handleGoogleSignIn = async () => {
         setIsLoading(true);
-        setAuthMessage(null);
-
         try {
+            // Store the role in sessionStorage BEFORE triggering the popup
+            // to ensure onAuthStateChanged picks it up correctly.
             sessionStorage.setItem('pending_role', role);
-
-            const { error } = await supabase.auth.signInWithOAuth({
-                provider: 'google',
-                options: { redirectTo: window.location.origin },
-            });
-
-            if (error) {
-                throw error;
-            }
+            
+            const provider = new GoogleAuthProvider();
+            await signInWithPopup(auth, provider);
+            onLogin(role);
         } catch (error) {
             console.error('Google Sign-In Error:', error);
-            setAuthMessage({ type: 'error', text: getFriendlyAuthError(error) });
-            sessionStorage.removeItem('pending_role');
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    const handleEmailAuth = async () => {
-        if (!email || !password) return;
-
-        setIsLoading(true);
-        setAuthMessage(null);
-
-        try {
-            sessionStorage.setItem('pending_role', role);
-
-            if (activeTab === 'signin') {
-                const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-                if (error) throw error;
-
-                if (data?.access_token) {
-                    onLogin(role);
-                    return;
-                }
-
-                throw new Error('Sign in did not return a valid session. Please try again.');
-            }
-
-            const { data, error } = await supabase.auth.signUp({ email, password });
-            if (error) throw error;
-
-            if (data?.access_token) {
-                onLogin(role);
-                return;
-            }
-
-            sessionStorage.removeItem('pending_role');
-            setAuthMessage({
-                type: 'info',
-                text: 'Account created. Please check your email to confirm your account before signing in.',
-            });
-        } catch (error) {
-            console.error('Email Auth Error:', error);
-            setAuthMessage({ type: 'error', text: getFriendlyAuthError(error) });
+            // Clear the pending role if sign-in fails
             sessionStorage.removeItem('pending_role');
         } finally {
             setIsLoading(false);
@@ -142,7 +79,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onLogin }) => {
                             <div className="w-5 h-5 border-2 border-black/20 border-t-black rounded-full animate-spin" />
                         ) : (
                             <>
-                                <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
+                                <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5" />
                                 <span>Continue with Google</span>
                             </>
                         )}
@@ -157,42 +94,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onLogin }) => {
                         </div>
                     </div>
 
-                    <div className="space-y-4">
-                        <input
-                            type="email"
-                            value={email}
-                            onChange={(e) => setEmail(e.target.value)}
-                            placeholder="Email address"
-                            className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white outline-none"
-                        />
-                        <input
-                            type="password"
-                            value={password}
-                            onChange={(e) => setPassword(e.target.value)}
-                            placeholder="Password"
-                            className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white outline-none"
-                        />
-                        <button
-                            onClick={handleEmailAuth}
-                            disabled={isLoading || !email || !password}
-                            className="w-full py-3 rounded-xl bg-white/10 text-white font-semibold disabled:opacity-50"
-                        >
+                    <div className="space-y-4 opacity-50 pointer-events-none">
+                        <input type="email" placeholder="Email address" className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white outline-none" />
+                        <input type="password" placeholder="Password" className="w-full px-4 py-3 rounded-xl bg-white/5 border border-white/10 text-white outline-none" />
+                        <button className="w-full py-3 rounded-xl bg-white/10 text-white/40 font-semibold">
                             {activeTab === 'signin' ? t('auth.signIn') : t('auth.createAccount')}
                         </button>
                     </div>
 
-                    {authMessage && (
-                        <p className={`text-sm rounded-xl border px-3 py-2 ${authMessage.type === 'error' ? 'text-red-300 border-red-500/40 bg-red-500/10' : 'text-cyan-200 border-cyan-500/40 bg-cyan-500/10'}`}>
-                            {authMessage.text}
-                        </p>
-                    )}
-
                     <div className="text-center">
                         <button 
-                            onClick={() => {
-                                setActiveTab(activeTab === 'signin' ? 'signup' : 'signin');
-                                setAuthMessage(null);
-                            }}
+                            onClick={() => setActiveTab(activeTab === 'signin' ? 'signup' : 'signin')}
                             className="text-primary text-sm font-medium hover:underline"
                         >
                             {activeTab === 'signin' ? "Don't have an account? Sign up" : "Already have an account? Sign in"}
