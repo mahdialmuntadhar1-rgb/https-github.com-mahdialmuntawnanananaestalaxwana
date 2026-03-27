@@ -6,8 +6,7 @@ import { Dashboard } from './components/Dashboard';
 import { SubcategoryModal } from './components/SubcategoryModal';
 import { HomePage } from './components/HomePage';
 import { api } from './services/api';
-import { auth } from './firebase';
-import { onAuthStateChanged, signOut } from 'firebase/auth';
+import { supabase } from './supabase';
 import type { User, Category, Subcategory, Post } from './types';
 import { TranslationProvider, useTranslations } from './hooks/useTranslations';
 import { motion, AnimatePresence } from 'motion/react';
@@ -92,11 +91,39 @@ const MainContent: React.FC = () => {
   });
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      if (firebaseUser) {
-        // Retrieve the role from sessionStorage if it was set during the AuthModal flow
+    const syncUserFromSession = async () => {
+      const { data, error } = await supabase.auth.getSession();
+
+      if (error) {
+        console.error('Unable to read Supabase session:', error);
+        setCurrentUser(null);
+        setIsLoggedIn(false);
+        setIsAuthReady(true);
+        return;
+      }
+
+      const sessionUser = data.session?.user;
+      if (sessionUser) {
         const pendingRole = sessionStorage.getItem('pending_role') as 'user' | 'owner' | null;
-        const user = await api.getOrCreateProfile(firebaseUser, pendingRole || 'user');
+        const user = await api.getOrCreateProfile(sessionUser, pendingRole || 'user');
+        setCurrentUser(user);
+        setIsLoggedIn(!!user);
+        sessionStorage.removeItem('pending_role');
+      } else {
+        setCurrentUser(null);
+        setIsLoggedIn(false);
+      }
+
+      setIsAuthReady(true);
+    };
+
+    syncUserFromSession();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      const sessionUser = session?.user;
+      if (sessionUser) {
+        const pendingRole = sessionStorage.getItem('pending_role') as 'user' | 'owner' | null;
+        const user = await api.getOrCreateProfile(sessionUser, pendingRole || 'user');
         setCurrentUser(user);
         setIsLoggedIn(!!user);
         sessionStorage.removeItem('pending_role');
@@ -107,7 +134,7 @@ const MainContent: React.FC = () => {
       setIsAuthReady(true);
     });
 
-    return () => unsubscribe();
+    return () => authListener.subscription.unsubscribe();
   }, []);
 
   useEffect(() => {
@@ -138,7 +165,7 @@ const MainContent: React.FC = () => {
   };
 
   const handleLogout = async () => {
-    await signOut(auth);
+    await supabase.auth.signOut();
     setIsLoggedIn(false);
     setCurrentUser(null);
     setPage('home');

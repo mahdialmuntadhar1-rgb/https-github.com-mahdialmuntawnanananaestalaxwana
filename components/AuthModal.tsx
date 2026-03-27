@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { X, User } from './icons';
 import { useTranslations } from '../hooks/useTranslations';
-import { auth } from '../firebase';
-import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { supabase } from '../supabase';
 
 interface AuthModalProps {
     onClose: () => void;
@@ -22,8 +21,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({ onClose, onLogin }) => {
             // to ensure onAuthStateChanged picks it up correctly.
             sessionStorage.setItem('pending_role', role);
             
-            const provider = new GoogleAuthProvider();
-            await signInWithPopup(auth, provider);
+            const { error } = await supabase.auth.signInWithOAuth({
+                provider: 'google',
+                options: {
+                    skipBrowserRedirect: true,
+                    queryParams: { prompt: 'select_account' }
+                }
+            });
+
+            if (error) {
+                throw error;
+            }
             onLogin(role);
         } catch (error) {
             console.error('Google Sign-In Error:', error);
