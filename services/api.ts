@@ -1,4 +1,3 @@
-import { auth } from '../firebase';
 import { supabase } from './supabase';
 import type { Business, Post, User, BusinessPostcard } from '../types';
 
@@ -16,17 +15,8 @@ interface SupabaseErrorInfo {
   operationType: OperationType;
   path: string | null;
   authInfo: {
-    userId: string | undefined;
-    email: string | null | undefined;
-    emailVerified: boolean | undefined;
-    isAnonymous: boolean | undefined;
-    tenantId: string | null | undefined;
-    providerInfo: {
-      providerId: string;
-      displayName: string | null;
-      email: string | null;
-      photoUrl: string | null;
-    }[];
+    userId: string | null;
+    email: string | null;
   };
 }
 
@@ -34,17 +24,8 @@ function handleSupabaseError(error: unknown, operationType: OperationType, path:
   const errInfo: SupabaseErrorInfo = {
     error: error instanceof Error ? error.message : String(error),
     authInfo: {
-      userId: auth.currentUser?.uid,
-      email: auth.currentUser?.email,
-      emailVerified: auth.currentUser?.emailVerified,
-      isAnonymous: auth.currentUser?.isAnonymous,
-      tenantId: auth.currentUser?.tenantId,
-      providerInfo: auth.currentUser?.providerData.map(provider => ({
-        providerId: provider.providerId,
-        displayName: provider.displayName,
-        email: provider.email,
-        photoUrl: provider.photoURL,
-      })) || [],
+      userId: null,
+      email: null,
     },
     operationType,
     path,
@@ -246,19 +227,19 @@ export const api = {
     }
   },
 
-  async getOrCreateProfile(firebaseUser: any, requestedRole: 'user' | 'owner' = 'user') {
-    if (!firebaseUser) return null;
+  async getOrCreateProfile(authUser: { id: string; email?: string | null; user_metadata?: Record<string, any>; email_confirmed_at?: string | null }, requestedRole: 'user' | 'owner' = 'user') {
+    if (!authUser) return null;
 
-    const path = `users/${firebaseUser.uid}`;
+    const path = `users/${authUser.id}`;
 
     try {
       const adminEmail = 'safaribosafar@gmail.com';
-      const isAdminEmail = firebaseUser.email === adminEmail && firebaseUser.emailVerified;
+      const isAdminEmail = authUser.email === adminEmail && Boolean(authUser.email_confirmed_at);
 
       const { data: existingUser, error: selectError } = await supabase
         .from('users')
         .select('*')
-        .eq('id', firebaseUser.uid)
+        .eq('id', authUser.id)
         .maybeSingle();
 
       if (selectError) throw selectError;
@@ -268,7 +249,7 @@ export const api = {
           const { data: updatedUser, error: updateError } = await supabase
             .from('users')
             .update({ role: 'admin' })
-            .eq('id', firebaseUser.uid)
+            .eq('id', authUser.id)
             .select('*')
             .single();
 
@@ -280,12 +261,12 @@ export const api = {
       }
 
       const newUser: User = {
-        id: firebaseUser.uid,
-        name: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'User',
-        email: firebaseUser.email || '',
-        avatar: firebaseUser.photoURL || `https://api.dicebear.com/7.x/avataaars/svg?seed=${firebaseUser.uid}`,
-        role: isAdminEmail ? ('admin' as any) : requestedRole,
-        businessId: requestedRole === 'owner' ? `b_${firebaseUser.uid}` : undefined,
+        id: authUser.id,
+        name: authUser.user_metadata?.full_name || authUser.user_metadata?.name || authUser.email?.split('@')[0] || 'User',
+        email: authUser.email || '',
+        avatar: authUser.user_metadata?.avatar_url || `https://api.dicebear.com/7.x/avataaars/svg?seed=${authUser.id}`,
+        role: isAdminEmail ? 'admin' : requestedRole,
+        businessId: requestedRole === 'owner' ? `b_${authUser.id}` : undefined,
       };
 
       const { data: createdUser, error: insertError } = await supabase

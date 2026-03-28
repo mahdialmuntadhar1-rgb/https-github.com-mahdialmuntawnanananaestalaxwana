@@ -2,19 +2,51 @@
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
-# Run and deploy your AI Studio app
+# Iraq Compass (Supabase-only)
 
-This contains everything you need to run your app locally.
+This project now runs on a single backend: **Supabase** (database + auth + realtime).
 
-View your app in AI Studio: https://ai.studio/apps/accadf3d-012c-4037-9b18-c758fba3ddf9
+## Required environment variables
 
-## Run Locally
+Create a `.env.local` file with:
 
-**Prerequisites:**  Node.js
+```bash
+VITE_SUPABASE_URL=your_supabase_project_url
+VITE_SUPABASE_ANON_KEY=your_supabase_anon_key
+VITE_GEMINI_API_KEY=your_gemini_api_key
+```
 
+> `VITE_GEMINI_API_KEY` is still required for AI-powered UI helpers (Data Architect / City Guide).
+
+## Local development
 
 1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+   ```bash
+   npm install
+   ```
+2. Run type-check + build preflight:
+   ```bash
+   ./scripts/preflight.sh
+   ```
+3. Start the dev server:
+   ```bash
+   npm run dev
+   ```
+
+## Architecture notes
+
+- Supabase client initialization: `services/supabase.ts`
+- Main data access layer: `services/api.ts`
+- Auth flow (Google OAuth via Supabase): `components/AuthModal.tsx` + `App.tsx`
+- Base schema and seed migration: `supabase/migrations/20260328_bootstrap_public_tables.sql`
+- Auth write policy migration: `supabase/migrations/20260328_auth_write_policies.sql`
+
+## Deployment verification
+
+Use:
+
+```bash
+./scripts/verify-deploy.sh
+```
+
+This checks type safety, production build output, and scans generated assets for forbidden legacy `businesses.verified` filters.
