@@ -9,7 +9,7 @@ This app now uses **Supabase as the only backend** for:
 - Database reads/writes
 - Realtime post updates
 
-Firebase has been removed from runtime code, config, dependencies, and setup.
+Legacy backend dependencies have been removed from runtime code, config, dependencies, and setup.
 
 ## Local setup
 
